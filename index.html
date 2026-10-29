@@ -933,10 +933,10 @@ function cartList(r,p){
   return L;
 }
 function cartTxt(r,p){
-  var L=cartList(r,p), out=[];
+  var L=cartList(r,p), out=[]; if(promoCart(r)) L=L.slice(0,cartN(r,p));
   L.forEach(function(c,i){ if(!c||(!c.bloco&&!c.serie)) return;
     var t=(c.bloco?'Bloco '+c.bloco:'')+(c.bloco&&c.serie?' · ':'')+(c.serie?'Série '+c.serie:'');
-    out.push((r.cartelas>1?'Cartela '+(i+1)+': ':'')+t); });
+    out.push((cartN(r,p)>1||L.length>1?'Cartela '+(i+1)+': ':'')+t); });
   return out.join(' | ');
 }
 
@@ -965,19 +965,40 @@ function promoAtiva(r){ return promoOk(r)&&hoje()<=r.promo.ate; }
 function diaPg(p){ if(!p) return hoje(); if(p.pgDia) return p.pgDia; if(p.ts){ var d=new Date(p.ts); if(!isNaN(d)) return d.toLocaleDateString('sv-SE'); } return p.data||hoje(); }
 function vPonto(r,p){ return p&&p.pago?vNoDia(r,diaPg(p)):vAtual(r); }
 function precoTxt(r){ return promoAtiva(r)?fG(r.promo.valor)+' até '+fD(r.promo.ate)+' (depois '+fG(r.valor)+')':fG(r.valor); }
-function promoLinha(r){ return promoAtiva(r)?'🔥 Promoção: '+fG(r.promo.valor)+' por ponto pago até '+fD(r.promo.ate)+'. Depois dessa data, '+fG(r.valor)+'.'+(promoFalta(r)?' ⏰ '+promoFalta(r).charAt(0).toUpperCase()+promoFalta(r).slice(1)+'.':''):''; }
+function promoLinha(r){ if(!promoTemAtiva(r)) return ''; var a=[];
+  if(promoAtiva(r)) a.push(fG(r.promo.valor)+' por ponto');
+  if(promoCartAtiva(r)) a.push(plural(promoCart(r),'cartela a mais','cartelas a mais')+' em cada ponto ('+plural((r.cartelas||0)+promoCart(r),'cartela','cartelas')+' no total)');
+  return '🔥 Promoção para quem pagar até '+fD(r.promo.ate)+': '+a.join(' + ')+'.'+(promoAtiva(r)?' Depois dessa data, '+fG(r.valor)+'.':'')+(promoFalta(r)?' ⏰ '+promoFalta(r).charAt(0).toUpperCase()+promoFalta(r).slice(1)+'.':''); }
 /* contagem regressiva: a promoção vale até o fim do dia (23:59) da data escolhida */
-function promoFim(r){ return promoOk(r)?new Date(r.promo.ate+'T23:59:59'):null; }
+function promoFim(r){ return promoTem(r)?new Date(r.promo.ate+'T23:59:59'):null; }
 function promoFalta(r){ var f=promoFim(r); if(!f) return ''; var ms=f-new Date(); if(ms<=0) return ''; var d=Math.floor(ms/864e5), h=Math.floor(ms%864e5/36e5), mi=Math.floor(ms%36e5/6e4);
   if(d>0) return 'faltam '+plural(d,'dia','dias')+(h?' e '+plural(h,'hora','horas'):'');
   if(h>0) return 'faltam '+plural(h,'hora','horas')+(mi?' e '+plural(mi,'minuto','minutos'):'');
   return mi>0?'faltam '+plural(mi,'minuto','minutos'):'termina agora'; }
 /* alerta de urgência para mensagens (cobrança, comprovante) */
-function promoAlertaTxt(r){ var f=promoAtiva(r)&&promoFalta(r); if(!f) return ''; return '⏰ *PROMOÇÃO ACABANDO: '+f.toUpperCase()+'!*\nPague até '+fD(r.promo.ate)+' e o ponto sai por '+fG(r.promo.valor)+'. Depois, volta para '+fG(r.valor)+'.'; }
+function promoAlertaTxt(r){ var f=promoTemAtiva(r)&&promoFalta(r); if(!f) return ''; var a=[];
+  if(promoAtiva(r)) a.push('o ponto sai por '+fG(r.promo.valor));
+  if(promoCartAtiva(r)) a.push((promoAtiva(r)?'ainda ganha ':'ganhe ')+plural(promoCart(r),'cartela a mais','cartelas a mais')+' em cada ponto');
+  return '⏰ *PROMOÇÃO ACABANDO: '+f.toUpperCase()+'!*\nPague até '+fD(r.promo.ate)+' e '+a.join(' e ')+'.'+(promoAtiva(r)?' Depois, volta para '+fG(r.valor)+'.':''); }
 /* alerta para as imagens */
-function promoAlerta(r){ var f=promoAtiva(r)&&promoFalta(r); return f?{t1:'⏰ PROMOÇÃO: '+f.toUpperCase(),t2:'Pague até '+fD(r.promo.ate)+' por '+fG(r.promo.valor)+' (depois '+fG(r.valor)+')'}:null; }
+function promoAlerta(r){ var f=promoTemAtiva(r)&&promoFalta(r); if(!f) return null; var a=[];
+  if(promoAtiva(r)) a.push('por '+fG(r.promo.valor)+' (depois '+fG(r.valor)+')');
+  if(promoCartAtiva(r)) a.push((promoAtiva(r)?'':'e ganhe ')+'+'+plural(promoCart(r),'cartela','cartelas')+' por ponto');
+  return {t1:'⏰ PROMOÇÃO: '+f.toUpperCase(),t2:'Pague até '+fD(r.promo.ate)+' '+a.join(' e ')}; }
+/* cartelas a mais na promoção (r.promo.cart): valem para o ponto pago até a data
+   (ou ainda não pago, enquanto a promoção está valendo). Depois da data, quem não pagou fica só com as cartelas normais. */
+function promoCart(r){ return r&&r.promo&&r.promo.cart>0&&r.promo.ate?+r.promo.cart:0; }
+function promoTem(r){ return promoOk(r)||promoCart(r)>0; }
+function promoTemAtiva(r){ return promoTem(r)&&hoje()<=r.promo.ate; }
+function promoCartAtiva(r){ return promoCart(r)>0&&hoje()<=r.promo.ate; }
+function cartExtra(r,p){ var e=promoCart(r); if(!e) return 0; return (p&&p.pago?diaPg(p):hoje())<=r.promo.ate?e:0; }
+/* bolão: ganha as cartelas a mais se todos pagarem até a data (ou enquanto a promoção vale) */
+function bolPgDia(b){ var ds=[], ok=true; (b.parts||[]).forEach(function(q){ if(!(q.cotas>0)) return; if(!q.pago) ok=false; else ds.push(diaPg(q)); }); if(!ok||!ds.length) return null; ds.sort(); return ds[ds.length-1]; }
+function cartExtraB(r,b){ var e=promoCart(r); if(!e) return 0; var d=b?bolPgDia(b):null; return (d||hoje())<=r.promo.ate?e:0; }
+function cartN(r,p){ if(p&&p.bolao){ var b=(r.boloes||[]).find(function(x){return x.id===p.bolao}); if(b) return (r.cartelas||0)+cartExtraB(r,b); } return (r.cartelas||0)+cartExtra(r,p); }
+function cartNTxt(r,p){ var e=p&&p.bolao?0:cartExtra(r,p); return plural(cartN(r,p),'cartela','cartelas')+(e?', com '+plural(e,'a mais','a mais')+' da promoção':''); }
 /* atualiza os cronômetros da tela a cada 30 s */
-setInterval(function(){ [].forEach.call(document.querySelectorAll('[data-promocd]'),function(el){ var r=st.rifas.find(function(x){return x.id===el.dataset.promocd}); var f=r&&promoAtiva(r)&&promoFalta(r); el.textContent=f?'⏰ Promoção: '+f:'Promoção encerrada'; }); },30000);
+setInterval(function(){ [].forEach.call(document.querySelectorAll('[data-promocd]'),function(el){ var r=st.rifas.find(function(x){return x.id===el.dataset.promocd}); var f=r&&promoTemAtiva(r)&&promoFalta(r); el.textContent=f?'⏰ Promoção: '+f:'Promoção encerrada'; }); },30000);
 function pontoVal(r,p){
   if(p.bolao){ var b=r.boloes.find(function(x){return x.id===p.bolao}); if(!b) return {v:vAtual(r),rec:0}; var c=blCalc(b,r), n=b.nums.length||b.qtd||1, rc=0; b.parts.forEach(function(q){ if(q.pago) rc+=c.parte(q); }); return {v:c.total/n,rec:rc/n}; }
   var v=vPonto(r,p); return {v:v,rec:p.pago?v:0};
@@ -1092,8 +1113,9 @@ function dlgRifa(id){
    '<label>Valor de cada ponto (g de ouro) <input type="number" id="rValor" min="0" step="0.1" inputmode="decimal" value="'+esc(r.valor)+'" style="width:190px"></label></div>'+
    '<p class="hint">Os números vão de 1 até a quantidade escolhida (ex.: 600 gera de 1 a 600).</p>'+
    '<div class="cartbox"><h3 style="margin:0 0 4px">Promoção até uma data (opcional)</h3><div class="row" style="align-items:flex-end"><label>Valor promocional do ponto (g) <input type="number" id="rPromoV" min="0" step="0.1" inputmode="decimal" value="'+esc(r.promo&&r.promo.valor||'')+'" style="width:170px"></label>'+
+   '<label>Cartelas a mais por ponto <input type="number" id="rPromoC" min="0" max="20" step="1" value="'+esc(r.promo&&r.promo.cart||'')+'" style="width:150px"></label>'+
    '<label>Válida até <input type="date" id="rPromoAte" value="'+esc(r.promo&&r.promo.ate||'')+'" style="width:170px"></label></div>'+
-   '<p class="hint" style="margin-bottom:0">Ex.: ponto de 5 g que fica por 4 g se for pago até 30/12. Pontos pagos até a data ficam registrados com o valor promocional. Depois da data, quem não pagou (inclusive números reservados e bolões) passa a pagar o valor normal. Deixe em branco se não houver promoção.</p></div>'+
+   '<p class="hint" style="margin-bottom:0">Use uma das duas formas ou as duas juntas. <b>Valor:</b> ponto de 5 g que fica por 4 g se for pago até 30/12. <b>Cartelas:</b> rifa com 3 cartelas por ponto e 1 a mais na promoção: quem pagar até a data fica com 4 cartelas. Deixe em branco o que não quiser usar. Pontos pagos até a data ficam registrados com o valor promocional e as cartelas a mais. Depois da data, quem não pagou (inclusive números reservados e bolões) passa a pagar o valor normal e fica só com as cartelas normais.</p></div>'+
    '<div class="cartbox"><h3 style="margin:0 0 4px">Cartelas por ponto</h3><div class="row" style="align-items:flex-end"><label>Quantas cartelas cada ponto dá direito? <input type="number" id="rCart" min="0" max="20" step="1" value="'+esc(r.cartelas==null?1:r.cartelas)+'" style="width:130px"></label></div>'+
    '<p class="hint" style="margin-bottom:0">Ex.: digite 4 para 4 cartelas em cada ponto (pode ser 3, 5... em outra rifa). Use 0 se a rifa não tiver cartelas. Ao abrir cada ponto, você informa o bloco e a série de cada cartela.</p></div>'+
    '<h3 style="margin-top:16px">Chances e prêmios</h3>'+blocoChances(r.premios)+
@@ -1111,16 +1133,16 @@ function salvaRifa(){
   if(!isAdmin()) return;
   var f={nome:$('rNome').value.trim(), data:$('rData').value, qtd:parseInt($('rQtd').value,10), cartelas:Math.max(0,Math.min(20,parseInt($('rCart').value,10)||0)), valor:rG(parseFloat($('rValor').value)),
     cotBrl:parseFloat($('rBrl').value)||0, cotUsd:parseFloat($('rUsd').value)||0, cotNota:$('rNota').value.trim(), premio:$('rPremio').value.trim(), descricao:$('rDesc').value.trim(), bingo:{quina:($('rBQ')?$('rBQ').value.trim():''),cheia:($('rBC')?$('rBC').value.trim():'')}};
-  var pv=rG(parseFloat($('rPromoV').value)||0), pa=$('rPromoAte').value; f.promo=(pv>0||pa)?{valor:pv,ate:pa}:null;
+  var pv=rG(parseFloat($('rPromoV').value)||0), pc=Math.max(0,Math.min(20,parseInt($('rPromoC').value,10)||0)), pa=$('rPromoAte').value; f.promo=(pv>0||pc>0||pa)?{valor:pv,cart:pc,ate:pa}:null;
   if(capaTmp!==undefined) f.capa=capaTmp||'';
   var err='', ex=editRid?st.rifas.find(function(x){return x.id===editRid}):null;
   if(!f.nome) err='Dê um nome à rifa.';
   else if(!f.data) err='Informe a data do sorteio.';
   else if(!(f.qtd>=1&&f.qtd<=10000)) err='A quantidade deve ficar entre 1 e 10.000.';
   else if(!(f.valor>0)) err='Informe o valor de cada ponto em gramas.';
-  else if(f.promo&&!(f.promo.valor>0)) err='Informe o valor promocional do ponto em gramas, ou apague a data da promoção.';
-  else if(f.promo&&!f.promo.ate) err='Informe até que data vale a promoção, ou apague o valor promocional.';
-  else if(f.promo&&f.promo.valor>=f.valor) err='O valor promocional precisa ser menor que o valor normal do ponto ('+fG(f.valor)+').';
+  else if(f.promo&&!(f.promo.valor>0)&&!(f.promo.cart>0)) err='Informe o valor promocional do ponto ou as cartelas a mais, ou apague a data da promoção.';
+  else if(f.promo&&!f.promo.ate) err='Informe até que data vale a promoção, ou apague o valor promocional e as cartelas a mais.';
+  else if(f.promo&&f.promo.valor>0&&f.promo.valor>=f.valor) err='O valor promocional precisa ser menor que o valor normal do ponto ('+fG(f.valor)+').';
   else if(ex){ var mx=Math.max.apply(null,[0].concat(Object.keys(ex.pontos).map(Number))); if(f.qtd<mx) err='Há o número '+mx+' já cadastrado. A quantidade não pode ser menor que '+mx+'.'; }
   if(err){ $('rErr').textContent=err; return; }
   if(ex){ Object.keys(f).forEach(function(k){ ex[k]=f[k]; }); ex.premios=lerPremios(ex); st.sel=ex.id; }
@@ -1143,7 +1165,7 @@ function grad(r){ var h=0,s=String(r.id); for(var i=0;i<s.length;i++) h=(h*31+s.
 function heroHtml(r,sm){
   var s=resumo(r), pc=r.qtd?Math.round(s.sold/r.qtd*100):0;
   return '<div class="hero'+(sm?' sm':'')+(r.status==='cancelada'?' canc':'')+'" style="background:'+grad(r)+'">'+(r.capa?'<img src="'+esc(r.capa)+'" alt="Capa da premiação">':'')+
-    '<div class="hc"><div>'+(r.status==='cancelada'?'<span class="hchip urg">RIFA CANCELADA</span>':r.status==='finalizada'?'<span class="hchip">RIFA CONCLUÍDA'+(r.encerradaEm?' em '+fD(r.encerradaEm):'')+'</span>':'<span class="hchip">Sorteio em '+fD(r.data)+'</span><span class="hchip">'+prazoTxt(r)+'</span>')+(urgente(r)?'<span class="hchip urg">URGENTE</span>':'')+(r.status==='aberta'&&promoAtiva(r)&&promoFalta(r)?'<span class="hchip promo" data-promocd="'+r.id+'">⏰ Promoção: '+promoFalta(r)+'</span>':'')+'</div>'+
+    '<div class="hc"><div>'+(r.status==='cancelada'?'<span class="hchip urg">RIFA CANCELADA</span>':r.status==='finalizada'?'<span class="hchip">RIFA CONCLUÍDA'+(r.encerradaEm?' em '+fD(r.encerradaEm):'')+'</span>':'<span class="hchip">Sorteio em '+fD(r.data)+'</span><span class="hchip">'+prazoTxt(r)+'</span>')+(urgente(r)?'<span class="hchip urg">URGENTE</span>':'')+(r.status==='aberta'&&promoTemAtiva(r)&&promoFalta(r)?'<span class="hchip promo" data-promocd="'+r.id+'">⏰ Promoção: '+promoFalta(r)+'</span>':'')+'</div>'+
     '<h2>'+esc(r.nome)+'</h2>'+(r.premio?'<div class="prize"><span>Premiação</span>'+esc(r.premio)+'</div>':'')+
     (!sm&&r.premios.length?'<div style="margin-top:10px">'+r.premios.map(function(z,i){return '<span class="hchip">'+(i+1)+'ª · '+esc(nomePremio(z))+'</span>'}).join('')+'</div>':'')+(!sm&&bingoArr(r).length?'<div style="margin-top:6px">'+bingoArr(r).map(function(x){return '<span class="hchip bingo">🎱 '+(x.o==='QUINA'?'Quina':'Cheia')+' · '+esc(x.t)+'</span>'}).join('')+'</div>':'')+(sm?'':'<div class="hprog"><div style="width:'+pc+'%"></div></div><div class="hsub">'+s.sold+' de '+s.tot+' números vendidos ('+pc+'%) · '+precoTxt(r)+' por ponto</div>')+'</div></div>';
 }
@@ -1401,11 +1423,15 @@ function parseNums(str,r){
   return Object.keys(out).map(Number);
 }
 var editN=null;
+function promoPgTxt(r){ var a=[], b=[], c0=r.cartelas||0, e=promoCart(r);
+  if(promoOk(r)){ a.push(fG(r.promo.valor)); b.push(fG(r.valor)); }
+  if(e){ a.push(plural(c0+e,'cartela','cartelas')); b.push(c0?plural(c0,'cartela','cartelas'):'sem cartelas'); }
+  return 'Pago até '+fD(r.promo.ate)+': '+a.join(' e ')+'. Depois: '+b.join(' e ')+'.'; }
 function cartHtml(r,p){
-  var n=r.cartelas||0; if(!n) return '';
-  var L=cartList(r,p), h='<div style="margin-top:14px"><label style="margin-bottom:6px">Cartelas deste ponto ('+plural(n,'cartela','cartelas')+')</label>';
+  var n=cartN(r,p), n0=r.cartelas||0; if(!n) return '';
+  var L=cartList(r,p), h='<div style="margin-top:14px"><label style="margin-bottom:6px">Cartelas deste ponto ('+cartNTxt(r,p)+')</label>';
   for(var i=0;i<n;i++){ var c=L[i]||{};
-    h+='<div class="crow"><b>Cartela '+(i+1)+'</b><span>Bloco</span><input class="cb" value="'+esc(c.bloco||'')+'" placeholder="Ex.: 12"><span>Série</span><input class="cs" value="'+esc(c.serie||'')+'" placeholder="Ex.: A-0345"></div>'; }
+    h+='<div class="crow"><b>Cartela '+(i+1)+(i>=n0?' 🔥':'')+'</b><span>Bloco</span><input class="cb" value="'+esc(c.bloco||'')+'" placeholder="Ex.: 12"><span>Série</span><input class="cs" value="'+esc(c.serie||'')+'" placeholder="Ex.: A-0345"></div>'; }
   return h+'</div>';
 }
 function dlgPonto(n){
@@ -1416,14 +1442,14 @@ function dlgPonto(n){
   if(reservado(r,n)){ resClique(r,n); return; }
   editN=n;
   var p=r.pontos[n], v=p||{nome:'',tel:'',pago:false,ref:'',serie:'',obs:''};
-  var h='<div class="dh"><div><h2>Número '+pad(n,r)+' <small>'+esc(r.nome)+' · '+fG(vPonto(r,p))+'</small></h2><div class="hint" style="margin:0">'+(p?(p.pago?'Pago'+(promoOk(r)?' em '+fD(diaPg(p))+(vPonto(r,p)<r.valor?' (valor promocional)':''):''):'Não pago'):'Livre')+(promoLinha(r)?'<br>'+esc(promoLinha(r)):'')+(p&&p.por?' · registrado por '+esc(p.por)+(p.alt?' · última alteração: '+esc(p.alt):''):'')+'</div></div><button class="act sec" data-a="fechar">Fechar</button></div>'+
+  var h='<div class="dh"><div><h2>Número '+pad(n,r)+' <small>'+esc(r.nome)+' · '+fG(vPonto(r,p))+'</small></h2><div class="hint" style="margin:0">'+(p?(p.pago?'Pago'+(promoTem(r)?' em '+fD(diaPg(p))+(vPonto(r,p)<r.valor?' (valor promocional)':'')+(cartExtra(r,p)?' (com '+plural(cartExtra(r,p),'cartela a mais','cartelas a mais')+')':''):''):'Não pago'):'Livre')+(promoLinha(r)?'<br>'+esc(promoLinha(r)):'')+(p&&p.por?' · registrado por '+esc(p.por)+(p.alt?' · última alteração: '+esc(p.alt):''):'')+'</div></div><button class="act sec" data-a="fechar">Fechar</button></div>'+
    '<div class="row"><label style="flex:1;min-width:220px">Nome da pessoa <input id="pNome" list="dlClientes" autocomplete="off" value="'+esc(v.nome)+'"></label>'+
    '<label style="min-width:190px">Telefone <input type="tel" id="pTel" value="'+esc(v.tel)+'" placeholder="Com DDI e DDD"></label></div><div class="hint" id="pCli" style="margin:4px 0 0;color:var(--in)"></div>'+
    '<div class="row" style="margin-top:12px"><div><label style="margin-bottom:5px">Situação do pagamento</label><div class="seg">'+
    '<label class="r'+(v.pago?'':' on')+'"><input type="radio" name="ppago" value="0"'+(v.pago?'':' checked')+'> Aguardando pagamento</label>'+
    '<label class="g'+(v.pago?' on':'')+'"><input type="radio" name="ppago" value="1"'+(v.pago?' checked':'')+'> Pago</label></div></div>'+
    '<div id="pFormaBox"'+(v.pago?'':' style="display:none"')+'><label style="margin-bottom:5px">Forma de pagamento <b style="color:var(--out)">*</b></label><div class="seg fseg">'+
-     Object.keys(FORMAS).map(function(k){ return '<label class="'+(v.forma===k?'on':'')+'"><input type="radio" name="pforma" value="'+k+'"'+(v.forma===k?' checked':'')+'> '+FORMAS[k].ic+' '+FORMAS[k].t+'</label>'; }).join('')+'</div>'+(promoOk(r)?'<label style="margin-top:8px">Pago em <input type="date" id="pPgDia" value="'+esc(v.pago?diaPg(v):hoje())+'" style="width:170px"></label><div class="hint" style="margin:4px 0 0">Pago até '+fD(r.promo.ate)+': '+fG(r.promo.valor)+'. Depois: '+fG(r.valor)+'.</div>':'')+'</div>'+
+     Object.keys(FORMAS).map(function(k){ return '<label class="'+(v.forma===k?'on':'')+'"><input type="radio" name="pforma" value="'+k+'"'+(v.forma===k?' checked':'')+'> '+FORMAS[k].ic+' '+FORMAS[k].t+'</label>'; }).join('')+'</div>'+(promoTem(r)?'<label style="margin-top:8px">Pago em <input type="date" id="pPgDia" value="'+esc(v.pago?diaPg(v):hoje())+'" style="width:170px"></label><div class="hint" style="margin:4px 0 0">'+promoPgTxt(r)+'</div>':'')+'</div>'+
    '</div>'+cartHtml(r,p)+
    '<div class="row" style="margin-top:12px"><label style="flex:1;min-width:200px">Referência <input id="pRef" value="'+esc(v.ref||'')+'" placeholder="Apelido ou quem vendeu"></label>'+
    '<label style="flex:2;min-width:240px">Observação <input id="pObs" value="'+esc(v.obs||'')+'"></label></div>'+
@@ -1700,7 +1726,7 @@ function blCardsHtml(r,ro){
     return '<div class="card bolao"><div class="gh"><h3>'+esc(b.nome)+' <span class="tag '+(pagos===n?'a':'v')+'" style="'+(pagos===n?'':'background:var(--out-bg);color:var(--out)')+'">'+(pagos===n?'Todos pagaram':pagos+' de '+n+' pagaram')+'</span></h3>'+(ro?'<div><button class="act sec" data-a="verbolr" data-id="'+r.id+'">Editar / cobrar na rifa</button>'+(isAdmin()?' <button class="act sec" data-a="bldesb" data-id="'+b.id+'" style="color:#1D4ED8">🚪 Desistente</button>':'')+'</div>':'<div><button class="act sec" data-a="shbol" data-id="'+b.id+'">Compartilhar</button> <button class="act sec" data-a="bled" data-id="'+b.id+'">Editar</button> <button class="act sec" data-a="bldesb" data-id="'+b.id+'" style="color:#1D4ED8">🚪 Desistente</button> <button class="link" data-a="bldel" data-id="'+b.id+'">apagar</button></div>')+'</div>'+
       '<div class="hint" style="margin:0 0 6px">'+plural(b.qtd,'número jogado simultaneamente','números jogados simultaneamente')+' · '+fG(blCalc(b,r).vNum)+' por número · custo total <b>'+money(r,c.total)+'</b></div>'+
       (b.nums.length?'<div>'+b.nums.map(function(x){return '<span class="nchip">'+pad(x,r)+'</span>'}).join('')+'</div>':'')+
-      (cartTxtB(r,b)?'<div class="hint" style="margin:6px 0 0"><b>Cartelas ('+plural(b.cart.filter(function(k){return k&&(k.bloco||k.serie)}).length,'preenchida','preenchidas')+' de '+b.cart.length+'):</b> '+esc(cartTxtB(r,b))+'</div>':'')+
+      (cartTxtB(r,b)?'<div class="hint" style="margin:6px 0 0"><b>Cartelas ('+plural(bolCartTodas(r,b).filter(function(k){return k&&(k.bloco||k.serie)}).length,'preenchida','preenchidas')+' de '+bolCartTodas(r,b).length+'):</b> '+esc(cartTxtB(r,b))+'</div>':'')+
       '<div class="share"><small>'+(iguais?'Cada um paga ('+plural(n,'participante','participantes')+')':'Valor de cada cota ('+nfG(c.soma)+' cotas, '+plural(n,'participante','participantes')+')')+'</small>'+
       '<b>'+fG(c.cota*(iguais?b.parts[0].cotas:1))+'</b><span>'+esc(convTxt(r,c.cota*(iguais?b.parts[0].cotas:1)))+'</span></div>'+
       '<div class="scroll"><table><thead><tr><th>Participante</th><th>Telefone</th><th class="n">Cotas</th><th class="n">Paga</th><th>Situação</th><th></th></tr></thead><tbody>'+
@@ -1735,18 +1761,22 @@ function renderBolao(){
   if(!algum) h+='<div class="card"><div class="empty">'+(q?'Nenhum bolão encontrado para “'+esc(($('blBusca')||{}).value||'')+'”.':'Nenhum bolão '+(blFiltro==='todas'?'foi criado ainda':'nesta rifa')+'. Crie dentro da rifa, selecionando números ou em “Novo bolão”.')+'</div></div>';
   $('blLista').innerHTML=h;
 }
-var editBid=null, bCartIni=[];
+var editBid=null, bCartIni=[], bCartXIni=[];
 /* cartelas do bolão: cartelas por ponto x quantidade de números */
-function blCartLer(){
-  return [].map.call(document.querySelectorAll('#bCart .crow'),function(w){ return {bloco:w.querySelector('.cb').value.trim(),serie:w.querySelector('.cs').value.trim()}; });
+function blCartLer(x){
+  return [].map.call(document.querySelectorAll('#bCart .crow'+(x?'[data-x]':':not([data-x])')),function(w){ return {bloco:w.querySelector('.cb').value.trim(),serie:w.querySelector('.cs').value.trim()}; });
 }
 function blCart(){
   var box=$('bCartBox'); if(!box) return;
-  var r=rifaAtual(), c=r.cartelas||0, nums=parseNums($('bNums').value,r), q=nums.length||parseInt($('bQtd').value,10)||0, tot=c*q;
+  var r=rifaAtual(), c=r.cartelas||0, e=cartExtraB(r,editBid?r.boloes.find(function(y){return y.id===editBid}):null), nums=parseNums($('bNums').value,r), q=nums.length||parseInt($('bQtd').value,10)||0, tot=(c+e)*q;
   if(!tot){ box.innerHTML=''; return; }
-  if($('bCart')){ var lido=blCartLer(); lido.forEach(function(k,i){ bCartIni[i]=k; }); } var cur=bCartIni, h='<div class="cartbox"><label style="margin-bottom:6px">Cartelas do bolão ('+plural(tot,'cartela','cartelas')+': '+c+' por número × '+plural(q,'número','números')+')</label>';
-  for(var i=0;i<tot;i++){ var k=cur[i]||{}, nm=nums.length?'Número '+pad(nums[Math.floor(i/c)],r)+' · ':'';
-    h+='<div class="crow"><b>'+nm+'Cartela '+(nums.length?(i%c)+1:i+1)+'</b><span>Bloco</span><input class="cb" value="'+esc(k.bloco||'')+'" placeholder="Ex.: 12"><span>Série</span><input class="cs" value="'+esc(k.serie||'')+'" placeholder="Ex.: A-0345"></div>'; }
+  if($('bCart')){ blCartLer().forEach(function(k,i){ bCartIni[i]=k; }); blCartLer(1).forEach(function(k,i){ bCartXIni[i]=k; }); }
+  var h='<div class="cartbox"><label style="margin-bottom:6px">Cartelas do bolão ('+plural(tot,'cartela','cartelas')+': '+(c+e)+' por número × '+plural(q,'número','números')+(e?', com '+e+' a mais da promoção':'')+')</label>';
+  var lin=function(k,nm,t,x){ return '<div class="crow"'+(x?' data-x="1"':'')+'><b>'+nm+'Cartela '+t+(x?' 🔥':'')+'</b><span>Bloco</span><input class="cb" value="'+esc(k.bloco||'')+'" placeholder="Ex.: 12"><span>Série</span><input class="cs" value="'+esc(k.serie||'')+'" placeholder="Ex.: A-0345"></div>'; };
+  if(nums.length){ nums.forEach(function(n,j){ var nm='Número '+pad(n,r)+' · ';
+      for(var i=0;i<c;i++) h+=lin(bCartIni[j*c+i]||{},nm,i+1,0);
+      for(var i2=0;i2<e;i2++) h+=lin(bCartXIni[j*e+i2]||{},nm,c+i2+1,1); }); }
+  else { for(var i=0;i<c*q;i++) h+=lin(bCartIni[i]||{},'',i+1,0); for(var i3=0;i3<e*q;i3++) h+=lin(bCartXIni[i3]||{},'',c*q+i3+1,1); }
   box.innerHTML='<div id="bCart">'+h+'</div></div>';
 }
 function cartTxtB(r,b){
@@ -1754,6 +1784,10 @@ function cartTxtB(r,b){
   L.forEach(function(k,i){ if(!k||(!k.bloco&&!k.serie)) return;
     var t=(k.bloco?'Bloco '+k.bloco:'')+(k.bloco&&k.serie?' · ':'')+(k.serie?'Série '+k.serie:''), nm=b.nums.length&&c?'Nº '+pad(b.nums[Math.floor(i/c)],r)+' ':'';
     out.push(nm+'cartela '+(c?(i%c)+1:i+1)+': '+t); });
+  var e=cartExtraB(r,b);
+  if(e) (b.cartX||[]).forEach(function(k,i){ if(!k||(!k.bloco&&!k.serie)) return;
+    var t=(k.bloco?'Bloco '+k.bloco:'')+(k.bloco&&k.serie?' · ':'')+(k.serie?'Série '+k.serie:''), nm=b.nums.length?'Nº '+pad(b.nums[Math.floor(i/e)],r)+' ':'';
+    out.push(nm+'cartela '+(b.nums.length?c+(i%e)+1:c*b.qtd+i+1)+': '+t); });
   return out.join(' | ');
 }
 function rowPart(p){
@@ -1779,7 +1813,7 @@ function dlgBolao(id,nums){
    '<div class="share" id="bPrev"></div>'+
    '<div class="row"><label style="flex:1;min-width:240px">Observação <input id="bObs" value="'+esc(b.obs||'')+'"></label></div>'+
    '<div class="row" style="margin-top:14px"><button class="act" data-a="bsalvar">Salvar bolão</button>'+(id?'<button class="act sec" data-a="shbol" data-id="'+id+'">Comprovante do bolão</button><button class="act sec" data-a="bldesb" data-id="'+id+'" style="color:#1D4ED8">🚪 Desistente</button>':'')+'<span class="hint" id="bErr" style="color:var(--out);margin:0"></span></div>';
-  dlClientes(); bCartIni=(b.cart||[]).slice(); $('dlgBody').innerHTML=h; if(!$('dlg').open) $('dlg').showModal(); blLock(); blCart(); blPrev();
+  dlClientes(); bCartIni=(b.cart||[]).slice(); bCartXIni=(b.cartX||[]).slice(); $('dlgBody').innerHTML=h; if(!$('dlg').open) $('dlg').showModal(); blLock(); blCart(); blPrev();
 }
 function blLock(){
   var r=rifaAtual(), n=parseNums($('bNums').value,r).length, q=$('bQtd'), v=$('bValor');
@@ -1819,9 +1853,9 @@ $('dlg').addEventListener('change',function(ev){ if($('bPrev')&&ev.target&&ev.ta
 function sincronizaPontos(r,b,antigos){
   var set={}; b.nums.forEach(function(n){ set[n]=1; });
   (antigos||[]).forEach(function(n){ if(!set[n]){ var p=r.pontos[n]; if(p&&p.bolao===b.id) delete r.pontos[n]; } });
-  var c=r.cartelas||0;
+  var c=r.cartelas||0, e=cartExtraB(r,b);
   b.nums.forEach(function(n,i){
-    var p=r.pontos[n], cs=c?(b.cart||[]).slice(i*c,i*c+c):[];
+    var p=r.pontos[n], cs=(c?(b.cart||[]).slice(i*c,i*c+c):[]).concat(e?(b.cartX||[]).slice(i*e,i*e+e):[]);
     if(!p) r.pontos[n]={nome:'Bolão: '+b.nome,tel:'',pago:false,ref:'',cart:cs,obs:'',data:hoje(),bolao:b.id};
     else if(p.bolao===b.id){ p.nome='Bolão: '+b.nome; p.cart=cs; }
   });
@@ -1839,7 +1873,7 @@ function salvaBolao(){
   if(!err){ x.nums.forEach(function(n){ var rz=resOf(r,n); if(!err&&rz&&rz.id!==window.fbFluxo) err='O número '+pad(n,r)+' está reservado para o bolão em formação “'+resNome(r,n)+'”. Use “Formar bolão” ou libere a reserva tocando no número.'; }); }
   if(!err){ x.nums.forEach(function(n){ var p=r.pontos[n]; if(!err&&p&&p.bolao!==editBid) err='O número '+pad(n,r)+' já está vendido ('+p.nome+'). Escolha outro ou libere o número antes.'; }); }
   if(err){ $('bErr').textContent=err; return; }
-  var obj={nome:nome,qtd:x.qtd,nums:x.nums,valor:x.valor,parts:x.parts,obs:$('bObs').value.trim(),cart:$('bCart')?blCartLer():[]}, antigos=[];
+  var obj={nome:nome,qtd:x.qtd,nums:x.nums,valor:x.valor,parts:x.parts,obs:$('bObs').value.trim(),cart:$('bCart')?blCartLer():[],cartX:$('bCart')?blCartLer(1):[]}, antigos=[];
   x.parts.forEach(function(q){ clienteGuarda(q.nome,q.tel,q.ref); });
   if(editBid){ var b=r.boloes.find(function(y){return y.id===editBid}); if(b){ antigos=b.nums.slice(); Object.assign(b,obj); sincronizaPontos(r,b,antigos); } }
   else { obj.id=newId(); r.boloes.push(obj); sincronizaPontos(r,obj,[]); }
@@ -2059,7 +2093,7 @@ function relCompletoCorpo(r,op){
      '<div><b>'+fD(r.data)+'</b><span>data do sorteio</span></div>'+
      '<div><b>'+r.qtd+'</b><span>números</span></div>'+
      '<div><b>'+fG(vAtual(r))+'</b><span>por número'+(convTxt(r,vAtual(r))?'<br>'+esc(convTxt(r,vAtual(r))):'')+(promoAtiva(r)?'<br>promoção até '+fD(r.promo.ate)+' (depois '+fG(r.valor)+')':'')+'</span></div>'+
-     (r.cartelas?'<div><b>'+r.cartelas+'</b><span>cartelas por número</span></div>':'')+
+     (r.cartelas||promoCartAtiva(r)?'<div><b>'+(r.cartelas||0)+(promoCartAtiva(r)?' + '+promoCart(r):'')+'</b><span>cartelas por número'+(promoCartAtiva(r)?'<br>+'+promoCart(r)+' para quem pagar até '+fD(r.promo.ate):'')+'</span></div>':'')+
      (temCot(r)?'<div><b>'+(r.cotBrl>0?'R$ '+nf(r.cotBrl,2):'—')+'</b><span>1 g no PIX'+(r.cotUsd>0?' · US$ '+nf(r.cotUsd,2)+' em dólar':'')+'</span></div>':'')+
      '</div>'+(pr?'<h3>Premiação</h3><table><thead><tr><th>Chance</th><th>Prêmio</th></tr></thead><tbody>'+pr+'</tbody></table>':'')+(bingoArr(r).length?'<h3>🎱 Prêmios do bingo</h3><table><thead><tr><th>Prêmio</th><th>O que ganha</th></tr></thead><tbody>'+bingoArr(r).map(function(x){ return '<tr><td>'+(x.o==='QUINA'?'Quina':'Cartela cheia')+'</td><td><b>'+esc(x.t)+'</b></td></tr>'; }).join('')+'</tbody></table>':'')+
      (r.descricao?'<h3>Sobre a premiação</h3><p class="m" style="white-space:pre-wrap">'+esc(r.descricao)+'</p>':'')+'</div>';
@@ -2136,10 +2170,10 @@ function alertasDia(){
   st.rifas.forEach(function(r){
     if(r.status!=='aberta') return;
     var semC=[], semB={}, bp=[];
-    if((r.cartelas||0)>0){
+    if((r.cartelas||0)>0||promoCart(r)){
       Object.keys(r.pontos).map(Number).sort(function(a,b){return a-b}).forEach(function(k){
-        var p=r.pontos[k]; if(stPonto(r,p)!=='pago') return; var f=cartPreench(r,p); if(f>=r.cartelas) return;
-        if(p.bolao){ (semB[p.bolao]=semB[p.bolao]||[]).push(k); } else semC.push({n:k,nome:p.nome,f:f});
+        var p=r.pontos[k]; if(stPonto(r,p)!=='pago') return; var f=cartPreench(r,p), nc=cartN(r,p); if(f>=nc) return;
+        if(p.bolao){ (semB[p.bolao]=semB[p.bolao]||[]).push(k); } else semC.push({n:k,nome:p.nome,f:f,c:nc});
       });
     }
     r.boloes.forEach(function(b){
@@ -2171,7 +2205,7 @@ function alertasHtml(A,compacto){
   return A.map(function(x){ var r=x.r, h='<div class="adia-r"><div class="adia-h"><b>'+esc(r.nome)+'</b><span>Sorteio em '+fD(r.data)+'</span><button class="act sec" data-a="adiaab" data-id="'+r.id+'">Abrir rifa</button></div>';
     if(x.semC.length||x.semB.length){
       h+='<div class="adia-t">🎫 Pontos pagos sem cartelas cadastradas</div>';
-      x.semC.forEach(function(z){ h+='<div class="adia-i"><span class="nchip">'+pad(z.n,r)+'</span><span class="adia-n">'+esc(z.nome)+'</span><small>'+z.f+' de '+r.cartelas+' '+(r.cartelas===1?'cartela':'cartelas')+'</small>'+(compacto?'':'<button class="act sec" data-a="adiapt" data-id="'+r.id+'" data-n="'+z.n+'">Cadastrar cartelas</button>')+'</div>'; });
+      x.semC.forEach(function(z){ h+='<div class="adia-i"><span class="nchip">'+pad(z.n,r)+'</span><span class="adia-n">'+esc(z.nome)+'</span><small>'+z.f+' de '+z.c+' '+(z.c===1?'cartela':'cartelas')+'</small>'+(compacto?'':'<button class="act sec" data-a="adiapt" data-id="'+r.id+'" data-n="'+z.n+'">Cadastrar cartelas</button>')+'</div>'; });
       x.semB.forEach(function(z){ h+='<div class="adia-i"><span class="adia-n">Bolão “'+esc(z.b.nome)+'”</span>'+z.nums.map(function(n){return '<span class="nchip">'+pad(n,r)+'</span>'}).join('')+'<small>sem cartelas completas</small>'+(compacto?'':'<button class="act sec" data-a="adiabl" data-id="'+r.id+'" data-b="'+z.b.id+'">Cadastrar cartelas</button>')+'</div>'; });
     }
     if(x.bp.length){
@@ -4022,7 +4056,7 @@ document.addEventListener('change',function(ev){
 try{ if(navigator.storage&&navigator.storage.persist) navigator.storage.persist(); }catch(e){}
 /* versão do sistema (aparece em Ajustes) e atualização automática: quando o site recebe uma versão nova,
    o app troca para ela e recarrega sozinho na mesma abertura, sem esperar a próxima */
-var APP_VER='v52 online', APP_DATA='23/10/2026';
+var APP_VER='v53 online', APP_DATA='29/10/2026';
 try{ if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol)){
   var swTinha=!!navigator.serviceWorker.controller, swRecarregou=false;
   navigator.serviceWorker.addEventListener('controllerchange',function(){ if(!swTinha||swRecarregou) return; swRecarregou=true; location.reload(); });
@@ -4285,7 +4319,7 @@ function loteProximo(){
 
 /* 3) comprovante do ponto: todas as informações do número e das cartelas */
 function cartLinhas(r,p){
-  var n=r.cartelas||0, L=cartList(r,p), tot=Math.max(n,L.length), out=[];
+  var n=cartN(r,p), L=cartList(r,p), tot=promoCart(r)?n:Math.max(n,L.length), out=[];
   for(var i=0;i<tot;i++){ var c=L[i]||{}; out.push('Cartela '+(i+1)+': Bloco '+(c.bloco||'—')+' · Série '+(c.serie||'—')); }
   return out;
 }
@@ -4330,12 +4364,14 @@ function bolDaPessoa(r,base,key){
 }
 
 /* 3b) bolão: detalhe completo e comprovante por participante */
-function bolTemCart(r,b){ return (b.cart||[]).some(function(k){ return k&&(k.bloco||k.serie); }); }
+function bolCartTodas(r,b){ return (b.cart||[]).concat(cartExtraB(r,b)?(b.cartX||[]):[]); }
+function bolTemCart(r,b){ return bolCartTodas(r,b).some(function(k){ return k&&(k.bloco||k.serie); }); }
 function bolNumLinhas(r,b,soPreench){
-  var c=r.cartelas||0, out=[];
+  var c=r.cartelas||0, e=cartExtraB(r,b), out=[];
   b.nums.forEach(function(n,j){
     var L=[], tot=Math.max(c,0);
     for(var i=0;i<tot;i++){ var k=(b.cart||[])[j*c+i]||{}; if(soPreench&&!(k.bloco||k.serie)) continue; L.push('Cartela '+(i+1)+': Bloco '+(k.bloco||'—')+' · Série '+(k.serie||'—')); }
+    for(var x=0;x<e;x++){ var kx=(b.cartX||[])[j*e+x]||{}; if(soPreench&&!(kx.bloco||kx.serie)) continue; L.push('Cartela '+(c+x+1)+': Bloco '+(kx.bloco||'—')+' · Série '+(kx.serie||'—')); }
     out.push({n:n,L:L});
   });
   return out;
